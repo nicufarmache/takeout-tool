@@ -137,13 +137,49 @@ for (const jsonPath of jsonSet){
 function indexJson(jsonPath) {
   progress.debug(['JSON: ', jsonPath], 4);
   try {
-    const suffix = getSuffix(jsonPath);
     const rawdata = readFileSync(jsonPath);
     const data = JSON.parse(rawdata);
-    const imageFilename = data.title;
-    const imagePath = (suffix === '') ? 
-      path.join(path.dirname(jsonPath), imageFilename) : 
-      path.join(path.dirname(jsonPath), path.parse(imageFilename).name + suffix + path.parse(imageFilename).ext);
+    let imageFilename = data.title;
+    const suffix = getSuffix(jsonPath);
+    let ext = path.parse(imageFilename).ext;
+    let basename = path.parse(imageFilename).name;
+
+    // handle (x) suffix
+    if (suffix !== ''){
+      basename = basename + suffix
+      imageFilename = basename + ext;
+    }
+
+    // handle 51 char limit
+    if (imageFilename.length > 51) {
+      basename = basename.substring(0, 51  - ext.length);
+      imageFilename = basename + ext;
+    }
+
+    // handle : -> _
+    if (basename.includes(':')) {
+      basename = basename.replaceAll(':','_');
+      imageFilename = basename + ext;
+    }
+
+    // handle missing ext
+    if (ext === '') {
+      if (fileSet.has(path.join(path.dirname(jsonPath), basename + '.png'))) {
+        ext = '.png'
+      }
+      if (fileSet.has(path.join(path.dirname(jsonPath), basename + '.jpg'))) {
+        ext = '.jpg'
+      }
+      if (fileSet.has(path.join(path.dirname(jsonPath), basename + '.jpeg'))) {
+        ext = '.jpeg'
+      }
+      imageFilename = basename + ext;
+    }
+
+    //Try also json basename
+
+
+    const imagePath = path.join(path.dirname(jsonPath), imageFilename);
     progress.debug(['JSON title: ', imageFilename], 4);
     progress.debug(['JSON suffx: ', suffix], 4);
     if(fileSet.has(imagePath)) {
