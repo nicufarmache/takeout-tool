@@ -50,8 +50,13 @@ export default class Progress {
   print() {
     const percent = (this.total === 0) ? 0 : Math.round(this.processed*100/this.total);
     this.logger.setStatusBarText([
-      `  Progress: ${this.makeBar(percent)} ${percent}% | ${this.processed}/${this.total} files processed`,
+      `  Progress: ${this.makeBar(percent)} ${percent}% (${this.processed}/${this.total})`,
     ]);
+  }
+  reset() {
+    this.total = 0;
+    this.processed = 0;
+    this.throttlePrint();
   }
   add(count = 1){
     this.total += count;

@@ -1,10 +1,11 @@
 import 'dotenv/config';
 import * as path from 'path';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import Progress from './progress.js';
 import CustomNames from './custom-names.js';
 
 const rootPath = path.join(process.env.ROOT_PATH, 'Takeout', 'Google Photos');
+const csvPath = process.env.CSV_PATH;
 const specialJsonFiles = [
   'print-subscriptions.json',
   'shared_album_comments.json',
@@ -13,58 +14,66 @@ const specialJsonFiles = [
 ];
 
 const progress = new Progress;
-const suffixRegex = new RegExp('\\(\\d\\)$');
+const suffixRegex = new RegExp('\\(\\d+\\)$');
 const ilegalCharsRegex = new RegExp('[\\\\/:*?\\"<>|%&]', 'g');
 const dirList = [];
-const fileList = [];
-const jsonList = [];
+const fileSet = new Set();
+const jsonSet = new Set();
+const jsonToFileMap = new Map();
+const fileToJsonMap = new Map();
 
-dirList.push(rootPath);
+scanDirs(rootPath);
+matchJsonFiles();
+exportCSV();
+checkForUnmachedFiles();
+process.exit();
 
-progress.info(['Scanning directories'], 1);
+function scanDirs(rootPath) {
+  progress.info(['Scanning directories'], 1);
 
-while(dirList.length) {
+  dirList.push(rootPath);
+  progress.reset();
+  
+  while(dirList.length) {
+    const dir = dirList.shift();
+    progress.debug(['DIR: ', dir], 4);
+  
+    const subItems = readdirSync(dir, {withFileTypes: true});
+  
+    for(const subItem of subItems) {
+      const subPath = path.join(dir, subItem.name);
+      
+      if(subItem.isDirectory()) {
+        dirList.push(subPath);
+        continue;
+      } 
+      
+      if(!subPath.endsWith('.json')) {
+        fileSet.add(subPath)
+        continue;
+      }
+  
+      if(specialJsonFiles.includes(path.basename(subPath))) {
+        continue;
+      }
 
-  const dir = dirList.shift();
-  progress.debug(['DIR: ', dir], 4);
-
-  const subItems = await readdirSync(dir, {withFileTypes: true});
-
-  for(const subItem of subItems) {
-    const subPath = path.join(dir, subItem.name);
-    
-    if(subItem.isDirectory()) {
-      dirList.push(subPath);
-      continue;
-    } 
-    
-    if(!subPath.endsWith('.json')) {
-      fileList.push(subPath)
-      // progress.add();
-      continue;
+      jsonSet.add(subPath);
+      progress.add();
     }
-
-    if(specialJsonFiles.includes(path.basename(subPath))) {
-      continue;
-    }
-
-    jsonList.push(subPath)
-    progress.add();
   }
+  progress.hide();
 }
 
-const fileSet = new Set(fileList);
-const jsonSet = new Set(jsonList);
-const matchMap = new Map();
-
-// progress.info(['Starting to process files: ', fileSet.size], 1);
-// for (const filePath of fileSet){
-//   indexFile(filePath)
-// }
-
-progress.info(['Starting to process json files'], 1);
-for (const jsonPath of jsonSet){
-  matchJson(jsonPath)
+function matchJsonFiles() {
+  progress.info(['Processing json files'], 1);
+  progress.reset();
+  progress.add(jsonSet.size);
+  for (const jsonPath of jsonSet){
+    matchJson(jsonPath)
+    progress.resolve();
+  }
+  progress.hide();
+  progress.info(['Matched', jsonToFileMap.size, 'json files out of', jsonSet.size], 1);
 }
 
 function matchJson(jsonPath) {
@@ -78,11 +87,10 @@ function matchJson(jsonPath) {
     const customFilePath = path.join(dir, customFilename);
     if(fileSet.has(customFilePath)) {
       progress.debug(['File found: ', customFilename], 4);
-      matchMap.set(jsonPath, customFilePath);
+      addMatch(jsonPath, customFilePath);
     } else {
       progress.error(['File missing: ', customFilename, ' from:', jsonPath]);
     } 
-    progress.resolve();
     return;
   }
 
@@ -95,7 +103,6 @@ function matchJson(jsonPath) {
     imageFilename = data.title;
   } catch (error) {
     progress.error(['JSON Error:', jsonPath, error]);
-    progress.resolve();
     return;
   }
 
@@ -112,12 +119,6 @@ function matchJson(jsonPath) {
     if (match) {
       suffix = match[0];
     }
-  }
-
-  // handle (x) suffix
-  if (suffix !== ''){
-    basename = basename + suffix
-    imageFilename = basename + ext;
   }
 
   // handle missing ext
@@ -146,7 +147,6 @@ function matchJson(jsonPath) {
     } 
     if (found > 1) {
       progress.error(['Ambiguous name: ', imageFilename, ' from:', jsonPath]);
-      progress.resolve();
       return;
     }
   }
@@ -157,19 +157,76 @@ function matchJson(jsonPath) {
     imageFilename = basename + ext;
   }
 
+  // handle (x) suffix
+  if (suffix !== ''){
+    basename = basename + suffix
+    imageFilename = basename + ext;
+  }
+
   // check if file exists
   const filePath = path.join(dir, imageFilename);
   if(!fileSet.has(filePath)) {
     progress.error(['File missing: ', imageFilename, ' from:', jsonPath]);
-    progress.resolve();
     return;
   } 
   
   progress.debug(['File found: ', imageFilename], 4);
-  matchMap.set(jsonPath, filePath);
-  progress.resolve();
+  addMatch(jsonPath, filePath);
 }
 
-progress.hide();
-progress.info(['Matched', matchMap.size, 'json files out of', jsonSet.size], 1);
-process.exit();
+function addMatch(jsonPath, filePath) {
+  if (fileToJsonMap.has(filePath)) {
+    progress.error(["Duplicate file match:", filePath]);
+    progress.error(["  new:", jsonPath]);
+    progress.error(["  old:", fileToJsonMap.get(filePath)]);
+
+    return;
+  }
+  jsonToFileMap.set(jsonPath, filePath);
+  fileToJsonMap.set(filePath, jsonPath);
+}
+
+function checkForUnmachedFiles() {
+  progress.info(['Checking for unmacthed files'], 1);
+  progress.reset();
+  progress.add(fileSet.size);
+  for (const filePath of fileSet){
+    if(filePath.includes('MVIMG')) {
+      // TODO handle these
+      continue;
+    }
+    if(filePath.includes('-edited')) {
+      continue;
+    }
+    if(filePath.endsWith('MP')) {
+      continue;
+    }
+    if(filePath.endsWith('MP~1')) {
+      continue;
+    }
+    if(filePath.endsWith('MP~2')) {
+      continue;
+    }
+    if(filePath.includes('/original_')) {
+      continue;
+    }
+    if(!fileToJsonMap.has(filePath)) {
+      progress.error(['Unmatched file: ', filePath]);
+    }
+    progress.resolve();
+  }
+  progress.hide();
+}
+
+function exportCSV() {
+  progress.info(['Exporting csv: ', csvPath], 1);
+  progress.reset();
+  progress.add(jsonToFileMap.size);
+  let data = "\"sep=,\"\nJson,File";
+  jsonToFileMap.forEach((filePath, jsonPath) => {
+    data=`${data}\n"${jsonPath}","${filePath}"`;
+    progress.resolve()
+  });
+  writeFileSync(csvPath, data);
+  progress.hide();
+}
