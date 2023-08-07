@@ -13,6 +13,8 @@ const specialJsonFiles = [
   'shared_album_comments.json',
   'user-generated-memory-titles.json',
   'metadata.json',
+  'metadata(1).json',
+  'metadata(2).json',
 ];
 
 const progress = new Progress;
