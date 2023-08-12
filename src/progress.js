@@ -11,6 +11,7 @@ export default class Progress {
   lastTime = 0;
   updateInterval = 100;
   maxLogLevel = 3;
+  timeout = 0;
 
   constructor(){
     this.logger = Logger();
@@ -45,6 +46,7 @@ export default class Progress {
 
   hide() {
     this.logger.setStatusBarText([]);
+    clearTimeout(this.timeout);
   }
 
   print() {
@@ -54,9 +56,10 @@ export default class Progress {
     ]);
   }
   reset() {
+    this.hide();
     this.total = 0;
     this.processed = 0;
-    this.throttlePrint();
+    this.clock();
   }
   add(count = 1){
     this.total += count;
@@ -73,6 +76,6 @@ export default class Progress {
   }
   clock(){
     this.print();
-    setTimeout(this.clock.bind(this), this.updateInterval);
+    this.timeout = setTimeout(this.clock.bind(this), this.updateInterval);
   }
 }
