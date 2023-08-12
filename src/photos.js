@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import * as path from 'path';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { startPath, csvPathJson, csvPathFiles, csvPathExtra } from '../config/general.js';
